@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">AppLock1</string>
+    <string name="accessibility_service_description">Requerido para detectar cuando abres una aplicación protegida y poder bloquearla. No recogemos ni guardamos tus datos.</string>
+</resources>

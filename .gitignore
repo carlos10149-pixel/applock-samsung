@@ -1,0 +1,41 @@
+# Built outputs
+/app/build/
+/build/
+
+# Gradle
+.gradle/
+gradle-app.setting
+!gradle-wrapper.jar
+
+# IntelliJ / Android Studio
+/.idea/
+*.iml
+*.ipr
+*.iws
+.DS_Store
+
+# Local config (contains SDK path — never commit this)
+local.properties
+
+# Signing keystore — NEVER commit your real keystore!
+*.keystore
+*.jks
+applock1.keystore
+
+# Kotlin incremental build data
+.kotlin/
+
+# APK/AAB outputs
+*.apk
+*.aab
+*.ap_
+
+# Logs
+*.log
+
+# Android Studio captures
+captures/
+
+# Test results
+/app/src/test/
+/app/src/androidTest/
