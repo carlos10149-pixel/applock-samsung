@@ -134,7 +134,12 @@ class LockOverlayActivity : FragmentActivity() {
     private fun goHome() {
         prompt?.cancelAuthentication()
         FastShieldManager.hide()
-        AppLockAccessibilityService.resetLock()
+        val p = pkg
+        if (p != null) {
+            AppLockAccessibilityService.resetLockForPkg(p)
+        } else {
+            AppLockAccessibilityService.resetLock()
+        }
         startActivity(Intent(Intent.ACTION_MAIN).apply {
             addCategory(Intent.CATEGORY_HOME)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
@@ -148,6 +153,22 @@ class LockOverlayActivity : FragmentActivity() {
         if (now - lastBack < 2000) goHome() else lastBack = now
     }
 
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val oldPkg = pkg
+        val newPkg = intent?.getStringExtra(PKG_KEY)
+        if (newPkg != null && newPkg != oldPkg) {
+            if (oldPkg != null) {
+                AppLockAccessibilityService.resetLockForPkg(oldPkg)
+            }
+            pkg = newPkg
+            errorMsg = null
+            busy = false
+            window.decorView.post { launchBiometric() }
+        }
+    }
+
     override fun onStop() {
         super.onStop()
         // BUG FIX: Samsung BiometricPrompt often leaks if the activity is stopped
@@ -159,7 +180,12 @@ class LockOverlayActivity : FragmentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         FastShieldManager.hide()
-        AppLockAccessibilityService.resetLock()
+        val p = pkg
+        if (p != null) {
+            AppLockAccessibilityService.resetLockForPkg(p)
+        } else {
+            AppLockAccessibilityService.resetLock()
+        }
     }
 }
 

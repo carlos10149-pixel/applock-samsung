@@ -35,8 +35,7 @@ class AppLockAccessibilityService : AccessibilityService() {
     private val sessionUnlocked = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     // State flags
-    @Volatile private var lockPending = false
-    @Volatile private var lockPendingTs = 0L      // BUG FIX: timestamp to auto-expire a stuck lockPending
+    private val lockPendingMap = java.util.concurrent.ConcurrentHashMap<String, Long>()
     @Volatile private var screenOn = true
     @Volatile private var gracePkg: String? = null
     @Volatile private var graceUntil = 0L
@@ -50,7 +49,7 @@ class AppLockAccessibilityService : AccessibilityService() {
             when (i?.action) {
                 Intent.ACTION_SCREEN_OFF -> {
                     screenOn = false
-                    lockPending = false
+                    lockPendingMap.clear()
                     gracePkg = null
                 }
                 Intent.ACTION_SCREEN_ON -> screenOn = true
@@ -69,7 +68,7 @@ class AppLockAccessibilityService : AccessibilityService() {
                 sessionUnlocked[pkg] = System.currentTimeMillis()
                 gracePkg = pkg
                 graceUntil = System.currentTimeMillis() + 3_000L
-                lockPending = false
+                lockPendingMap.remove(pkg)
             }
             // FIX: Cancel our replacement notifications now that user has authenticated.
             // This prevents the "Contenido oculto" notification from lingering in the
@@ -77,9 +76,14 @@ class AppLockAccessibilityService : AccessibilityService() {
             NotificationGuardService.instance?.cancelReplacementsFor(pkg)
         }
 
-        // Called by LockOverlayActivity when user cancels (go home)
+        // Called by LockOverlayActivity when user cancels (go home) or activity is destroyed
+        fun resetLockForPkg(pkg: String) {
+            instance?.lockPendingMap?.remove(pkg)
+        }
+
+        // Fallback for global reset
         fun resetLock() {
-            instance?.lockPending = false
+            instance?.lockPendingMap?.clear()
         }
 
         private val SKIP_PACKAGES = setOf(
@@ -162,7 +166,7 @@ class AppLockAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         instance = this
         sessionUnlocked.clear()
-        lockPending = false
+        lockPendingMap.clear()
         serviceInfo = serviceInfo?.apply {
             eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
                     AccessibilityEvent.TYPE_WINDOWS_CHANGED
@@ -221,7 +225,7 @@ class AppLockAccessibilityService : AccessibilityService() {
         // BUG FIX: Also clear grace state on interrupt, not just lockPending.
         // Without this, if Samsung interrupts the service mid-lock, gracePkg
         // stays set and the NEXT attempt to open that app is silently skipped.
-        lockPending = false
+        lockPendingMap.clear()
         gracePkg = null
     }
 
@@ -230,11 +234,11 @@ class AppLockAccessibilityService : AccessibilityService() {
         val usm = getSystemService(USAGE_STATS_SERVICE) as UsageStatsManager
         val event = UsageEvents.Event()
         while (true) {
-            delay(250)
+            delay(150)
             if (!screenOn || !prefs.isGlobalEnabled || lockedApps.isEmpty()) continue
 
             val now = System.currentTimeMillis()
-            val events = usm.queryEvents(now - 3_000, now)
+            val events = usm.queryEvents(now - 1_500, now)
             var top: String? = null
             var topTs = 0L
             while (events.hasNextEvent()) {
@@ -343,13 +347,14 @@ class AppLockAccessibilityService : AccessibilityService() {
         if (pkg == packageName) return
         if (!prefs.isGlobalEnabled) return
 
-        // BUG FIX: Auto-expire a stuck lockPending after 3 seconds.
+        // BUG FIX: Auto-expire a stuck lockPending after 3 seconds for this package.
         // If the user exits quickly before the lock screen appears, Android can
         // kill LockOverlayActivity without calling onDestroy, leaving lockPending=true forever.
-        if (lockPending && (now - lockPendingTs) > 3_000L) {
-            lockPending = false
+        val pendingTs = lockPendingMap[pkg]
+        if (pendingTs != null && (now - pendingTs) > 3_000L) {
+            lockPendingMap.remove(pkg)
         }
-        if (lockPending) return
+        if (lockPendingMap.containsKey(pkg)) return
 
         // Not a locked app → nothing to do
         if (!lockedApps.contains(pkg)) return
@@ -370,8 +375,7 @@ class AppLockAccessibilityService : AccessibilityService() {
         if (gracePkg == pkg && now < graceUntil) return
 
         // ── Trigger lock ──────────────────────────────────────────────────
-        lockPending = true
-        lockPendingTs = now
+        lockPendingMap[pkg] = now
         scope.launch(Dispatchers.Main) {
             FastShieldManager.show(this@AppLockAccessibilityService)
             startActivity(Intent(this@AppLockAccessibilityService, LockOverlayActivity::class.java).apply {
